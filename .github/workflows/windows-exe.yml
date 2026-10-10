@@ -1,0 +1,111 @@
+name: Windows desktop EXE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      UV_PYTHON: '3.12.13'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.28'
+          enable-cache: true
+          cache-dependency-glob: server/services/checker/uv.lock
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.24.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: pnpm
+          cache-dependency-path: |
+            desktop/pnpm-lock.yaml
+            web/app/pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: |
+          uv python install 3.12.13
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv sync --project server/services/checker --frozen --group packaging
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir web/app install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir desktop install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test Python and desktop lifecycle
+        run: |
+          uv run --project server/services/checker --frozen pytest server/services/checker/tests -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --dir desktop test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Bundle verified offline OCR runtime
+        run: ./desktop/scripts/prepare-ocr.ps1
+      - name: Build frontend and freeze Python with interpreter
+        run: |
+          pnpm --dir desktop build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path desktop/python/dist/checker-backend/_internal/python312.dll)) { throw 'Bundled Python interpreter is missing' }
+      - name: Make real DOCX and scanned PDF smoke fixtures
+        run: |
+          ./desktop/scripts/prepare-smoke-font.ps1
+          uv run --project server/services/checker --frozen python desktop/scripts/make-smoke-fixtures.py --output desktop/smoke-output/fixtures --font desktop/.cache/NotoSansCJKsc-Regular.otf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package portable EXE and installer
+        run: |
+          pnpm --dir desktop package:win:prepared
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run bundled app without external interpreters
+        run: |
+          $TestRoot = Join-Path $env:RUNNER_TEMP '标衡 打包验证'
+          New-Item -ItemType Directory -Force -Path $TestRoot | Out-Null
+          Copy-Item desktop/release/win-unpacked (Join-Path $TestRoot '应用') -Recurse
+          $Data = Join-Path $TestRoot '用户 数据'
+          ./desktop/scripts/smoke-windows.ps1 -Executable (Join-Path $TestRoot '应用/BiaoHeng.exe') -Fixtures desktop/smoke-output/fixtures -DataDirectory $Data -Report desktop/smoke-output/unpacked.json
+          $Portable = Get-ChildItem desktop/release/*-portable.exe | Select-Object -First 1
+          Copy-Item $Portable.FullName (Join-Path $TestRoot '标衡 便携版.exe')
+          ./desktop/scripts/smoke-windows.ps1 -Executable (Join-Path $TestRoot '标衡 便携版.exe') -Fixtures desktop/smoke-output/fixtures -DataDirectory $Data -Report desktop/smoke-output/portable.json -ExpectedRestoredReports 2
+      - name: Write SHA256 checksums
+        run: |
+          Get-ChildItem desktop/release/*.exe | ForEach-Object {
+            $Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$Hash  $($_.Name)"
+          } | Set-Content desktop/release/SHA256SUMS.txt -Encoding utf8
+      - name: Upload runnable Windows executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiaoHeng-windows-x64-${{ github.run_number }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve smoke reports and backend logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiaoHeng-smoke-${{ github.run_number }}
+          path: |
+            desktop/smoke-output/*.json
+            ${{ runner.temp }}/标衡 打包验证/用户 数据/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 14

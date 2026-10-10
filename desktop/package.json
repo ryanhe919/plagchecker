@@ -1,0 +1,26 @@
+{
+  "name": "biaoheng-desktop",
+  "productName": "标衡",
+  "version": "0.1.0",
+  "description": "标衡 · 标书相似性核查桌面版",
+  "author": "BiaoHeng",
+  "private": true,
+  "main": "electron/main.cjs",
+  "packageManager": "pnpm@11.24.0",
+  "engines": { "node": ">=24.18.0 <25" },
+  "scripts": {
+    "postinstall": "install-electron",
+    "dev": "pnpm build:web && electron .",
+    "build:web": "pnpm --dir ../web/app build",
+    "build:python": "node scripts/build-python.mjs",
+    "build": "pnpm build:web && pnpm build:python",
+    "package:win": "pnpm build && electron-builder --win --x64 --publish never",
+    "package:win:prepared": "electron-builder --win --x64 --publish never",
+    "package:dir": "electron-builder --dir --publish never",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}

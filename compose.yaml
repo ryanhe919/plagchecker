@@ -1,0 +1,84 @@
+name: plagiarism-checker
+
+services:
+  api:
+    image: plagiarism-checker-runtime:local
+    build:
+      context: ./server/services/checker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CHECKER_JOBS_DIR: /data/jobs
+    volumes:
+      - checker-jobs:/data/jobs
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/checker/health', timeout=3).read()
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: plagiarism-checker-runtime:local
+    pull_policy: never
+    command: ["python", "-m", "checker.worker"]
+    restart: unless-stopped
+    init: true
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CHECKER_JOBS_DIR: /data/jobs
+    volumes:
+      - checker-jobs:/data/jobs
+    stop_grace_period: 1h
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ./web/app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  checker-jobs:

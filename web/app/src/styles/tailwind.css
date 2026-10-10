@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    color-scheme: light;
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+  body {
+    margin: 0;
+    background: #f8fafc;
+  }
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 2px solid #1a73e8;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 3px 18px rgb(15 23 42 / 3%);
+  }
+  .hero {
+    background:
+      radial-gradient(circle at 92% 4%, #d9e9ff 0, transparent 32%),
+      linear-gradient(115deg, #fff 12%, #f3f8ff 65%, #edf7ff 100%);
+  }
+  .eyebrow {
+    color: #1a73e8;
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .field {
+    min-height: 36px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 8px 11px;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+    outline: none;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .field:focus {
+    border-color: #80aef4;
+    box-shadow: 0 0 0 3px rgb(26 115 232 / 10%);
+  }
+  .field::placeholder {
+    color: #94a3b8;
+  }
+  .range {
+    height: 6px;
+    accent-color: #1a73e8;
+    cursor: pointer;
+  }
+  .primary-button {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 999px;
+    background: #1a73e8;
+    padding: 0 19px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 650;
+    box-shadow: 0 3px 9px rgb(26 115 232 / 18%);
+    transition:
+      background 0.15s,
+      transform 0.15s;
+  }
+  .primary-button:hover:not(:disabled) {
+    background: #155fbf;
+    transform: translateY(-1px);
+  }
+  .primary-button:disabled {
+    background: #9eb9e2;
+    box-shadow: none;
+  }
+  .secondary-button {
+    display: inline-flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #fff;
+    padding: 0 14px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 600;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
+  }
+  .secondary-button:hover {
+    border-color: #9ec2f7;
+    color: #1a73e8;
+  }
+  .icon-button {
+    display: inline-flex;
+    width: 29px;
+    height: 29px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    color: #64748b;
+  }
+  .icon-button:hover:not(:disabled) {
+    background: #eff6ff;
+    color: #1a73e8;
+  }
+  .icon-button:disabled {
+    opacity: 0.35;
+  }
+}

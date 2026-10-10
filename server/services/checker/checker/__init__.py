@@ -1,0 +1,1 @@
+"""Tender document comparison service."""

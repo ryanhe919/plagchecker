@@ -1,0 +1,40 @@
+appId: io.biaoheng.checker
+productName: 标衡
+executableName: BiaoHeng
+asar: true
+directories:
+  output: release
+files:
+  - electron/**/*
+  - package.json
+extraResources:
+  - from: python/dist/checker-backend
+    to: backend
+  - from: ../web/app/dist
+    to: web
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  requestedExecutionLevel: asInvoker
+  extraResources:
+    - from: .cache/tesseract
+      to: tesseract
+nsis:
+  artifactName: BiaoHeng-${version}-windows-${arch}-setup.exe
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: 标衡
+  installerLanguages: [zh_CN, en_US]
+portable:
+  artifactName: BiaoHeng-${version}-windows-${arch}-portable.exe
+  requestExecutionLevel: user
+  unpackDirName: BiaoHeng-${version}
+electronLanguages: [zh-CN, en-US]
+mac:
+  identity: null
