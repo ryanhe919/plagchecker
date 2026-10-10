@@ -1,5 +1,5 @@
 const { app, BrowserWindow, dialog, Menu, session } = require('electron');
-const { mkdirSync, writeFileSync } = require('node:fs');
+const { mkdirSync, writeFileSync, readFileSync, existsSync } = require('node:fs');
 const path = require('node:path');
 const { BackendRuntime, runtimePaths } = require('./runtime.cjs');
 
@@ -29,7 +29,11 @@ async function fail(error) {
   console.error(error);
   if (smokeReport) {
     mkdirSync(path.dirname(smokeReport), { recursive: true });
-    writeFileSync(smokeReport, JSON.stringify({ ok: false, error: error.stack || String(error) }, null, 2));
+    const log = runtime?.paths.log;
+    writeFileSync(smokeReport, JSON.stringify({
+      ok: false, error: error.stack || String(error),
+      backendLog: log && existsSync(log) ? readFileSync(log, 'utf8').slice(-16000) : '',
+    }, null, 2));
   } else {
     dialog.showErrorBox('标衡启动失败', `${error.message}\n\n诊断日志：${path.join(app.getPath('userData'), 'logs', 'backend.log')}`);
   }

@@ -126,6 +126,7 @@ def test_desktop_runtime_uses_explicit_ocr_and_persistent_data_paths(tmp_path: P
     (languages / "chi_sim.traineddata").touch()
     monkeypatch.setenv("TESSERACT_CMD", str(executable))
     monkeypatch.setenv("TESSDATA_PREFIX", str(languages))
+    monkeypatch.setenv("CHECKER_TESSERACT_CWD", "unused")
     monkeypatch.setattr(pytesseract, "tesseract_cmd", "tesseract")
     monkeypatch.setenv("CHECKER_JOBS_DIR", "unused")
     jobs = tmp_path / "本地历史" / "jobs"
@@ -134,6 +135,10 @@ def test_desktop_runtime_uses_explicit_ocr_and_persistent_data_paths(tmp_path: P
     assert os.environ["CHECKER_JOBS_DIR"] == str(jobs.resolve())
     assert pytesseract.tesseract_cmd == str(executable.resolve())
     assert os.environ["TESSDATA_PREFIX"] == str(languages.resolve())
+    if os.name == "nt":
+        assert os.environ["CHECKER_TESSERACT_CWD"] == str(languages.resolve())
+    else:
+        assert "CHECKER_TESSERACT_CWD" not in os.environ
     (languages / "chi_sim.traineddata").unlink()
     with pytest.raises(ValueError, match="chi_sim.traineddata"):
         configure_runtime(jobs)

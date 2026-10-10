@@ -1,5 +1,8 @@
 import math
+import logging
+import os
 import re
+import sys
 from typing import BinaryIO, Callable, Literal
 
 import pdfplumber
@@ -12,6 +15,8 @@ from pypdf.errors import PdfReadError
 
 from checker.extract import MAX_PREVIEW_BYTES, ParsedDocument, _append_text, _as_stream, image_info
 from checker.schemas import ImageInfo, TextBlock
+
+logger = logging.getLogger(__name__)
 
 def _image_coverage(page: pdfplumber.page.Page) -> float:
     area = max(page.width * page.height, 1)
@@ -38,8 +43,19 @@ def _ocr_text(page: pdfplumber.page.Page, number: int) -> str:
         raise ValueError(f"PDF 第 {number} 页尺寸过大，无法以足够分辨率进行 OCR")
     try:
         image = page.to_image(resolution=dpi).original.convert("RGB")
+        data_directory = os.environ.get("CHECKER_TESSERACT_CWD")
+        if sys.platform == "win32" and data_directory:
+            from checker.desktop_ocr import image_to_text
+
+            return image_to_text(image, data_directory)
         return pytesseract.image_to_string(image, lang="chi_sim+eng", config="--psm 3")
-    except (pytesseract.TesseractNotFoundError, pytesseract.TesseractError) as exc:
+    except (pytesseract.TesseractNotFoundError, pytesseract.TesseractError, OSError) as exc:
+        logger.exception(
+            "pdf_ocr_failed page=%s command=%r model_cwd=%r tessdata=%r status=%r stderr=%r",
+            number, pytesseract.pytesseract.tesseract_cmd,
+            os.environ.get("CHECKER_TESSERACT_CWD"), os.environ.get("TESSDATA_PREFIX"),
+            getattr(exc, "status", None), getattr(exc, "message", str(exc)),
+        )
         raise ValueError("OCR 不可用；请安装 Tesseract 的简体中文及英文语言包，或关闭 PDF OCR") from exc
 
 

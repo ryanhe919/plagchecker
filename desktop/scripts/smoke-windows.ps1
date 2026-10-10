@@ -40,6 +40,10 @@ try {
     if ($null -ne $Process -and !$Process.HasExited) {
         & "$env:SystemRoot\System32\taskkill.exe" /PID $Process.Id /T /F | Out-Null
     }
+    $BackendLog = Join-Path $DataDirectory 'logs/backend.log'
+    if (Test-Path $BackendLog) {
+        Copy-Item $BackendLog (Join-Path (Split-Path $Report) (([IO.Path]::GetFileNameWithoutExtension($Report)) + '-backend.log')) -Force
+    }
     $env:PATH = $OriginalPath
     $env:PYTHONHOME = $OriginalPythonHome
     $env:PYTHONPATH = $OriginalPythonPath

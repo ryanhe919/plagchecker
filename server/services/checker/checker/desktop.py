@@ -69,6 +69,7 @@ def configure_runtime(data_dir: Path) -> None:
     data_dir = data_dir.expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
     os.environ["CHECKER_JOBS_DIR"] = str(data_dir)
+    os.environ.pop("CHECKER_TESSERACT_CWD", None)
     command = os.environ.get("TESSERACT_CMD")
     if command:
         from pytesseract import pytesseract
@@ -78,12 +79,18 @@ def configure_runtime(data_dir: Path) -> None:
             raise ValueError(f"OCR 可执行文件缺失：{executable}")
         pytesseract.tesseract_cmd = str(executable)
     tessdata = os.environ.get("TESSDATA_PREFIX")
+    if not tessdata and command and os.name == "nt":
+        tessdata = str(executable.parent / "tessdata")
     if tessdata:
         languages = Path(tessdata).expanduser().resolve()
         for language in ("chi_sim", "eng"):
             if not (languages / f"{language}.traineddata").is_file():
                 raise ValueError(f"OCR 语言包缺失：{language}.traineddata")
         os.environ["TESSDATA_PREFIX"] = str(languages)
+        if command and os.name == "nt":
+            # Use Unicode cwd via CreateProcessW, then ASCII '.' in the native
+            # OCR CLI. This also supports custom model directories in Chinese.
+            os.environ["CHECKER_TESSERACT_CWD"] = str(languages)
 
 
 def write_ready_file(path: Path, port: int) -> None:
