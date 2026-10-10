@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
 const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require('node:fs');
 const os = require('node:os');
@@ -37,7 +38,7 @@ const runtimeChildSource = String.raw`
   const mode = args[0];
   const value = (name) => args[args.indexOf(name) + 1];
   const data = value('--data-dir');
-  fs.writeFileSync(path.join(data, mode + '.json'), JSON.stringify({ args, pid: process.pid, env: { PYTHONHOME: process.env.PYTHONHOME, PYTHONPATH: process.env.PYTHONPATH } }));
+  fs.writeFileSync(path.join(data, mode + '.json'), JSON.stringify({ args, pid: process.pid, env: { PYTHONHOME: process.env.PYTHONHOME, PYTHONPATH: process.env.PYTHONPATH, CHECKER_LAUNCH_TOKEN: process.env.CHECKER_LAUNCH_TOKEN } }));
   if (mode === 'serve') {
     if (args.includes('--with-ocr-child')) {
       const ocr = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -48,7 +49,7 @@ const runtimeChildSource = String.raw`
       response.end(JSON.stringify({ status: 'ok' }));
     });
     server.listen(0, '127.0.0.1', () => {
-      fs.writeFileSync(value('--ready-file'), JSON.stringify({ host: '127.0.0.1', port: server.address().port, pid: process.pid }));
+      fs.writeFileSync(value('--ready-file'), JSON.stringify({ host: '127.0.0.1', port: server.address().port, pid: process.pid, launch_token: process.env.CHECKER_LAUNCH_TOKEN }));
     });
   } else {
     setInterval(() => {}, 1000);
@@ -190,6 +191,39 @@ test('readiness rejects a stale PID and invalid host or port', async (t) => {
   }
 });
 
+test('development launcher may report a different positive backend PID with the correct launch token', async (t) => {
+  const directory = temporaryDirectory(t);
+  const launchToken = randomUUID();
+  const { child, file } = readyChild(t, directory, { ready: { pid: process.pid, launch_token: launchToken } });
+  const origin = await waitForReady(file, child, 5000, { matchChildPid: false, launchToken });
+  const ready = JSON.parse(readFileSync(file, 'utf8'));
+  assert.notEqual(ready.pid, child.pid);
+  assert.equal(origin, `http://127.0.0.1:${ready.port}`);
+});
+
+test('development readiness rejects invalid backend PIDs even with the correct launch token', async (t) => {
+  const launchToken = randomUUID();
+  for (const pid of [0, -1, '8080', 8080.5]) {
+    await t.test(JSON.stringify(pid), async (subtest) => {
+      const directory = temporaryDirectory(subtest);
+      const { child, file } = readyChild(subtest, directory, { ready: { pid, launch_token: launchToken } });
+      await assert.rejects(waitForReady(file, child, 5000, { matchChildPid: false, launchToken }), /后端启动信息无效/);
+    });
+  }
+});
+
+test('readiness rejects missing or incorrect launch tokens for both launcher and packaged PID checks', async (t) => {
+  for (const matchChildPid of [false, true]) {
+    for (const launch_token of [undefined, randomUUID()]) {
+      await t.test(`${matchChildPid ? 'packaged' : 'development'} ${launch_token ? 'incorrect' : 'missing'} token`, async (subtest) => {
+        const directory = temporaryDirectory(subtest);
+        const { child, file } = readyChild(subtest, directory, { ready: { launch_token } });
+        await assert.rejects(waitForReady(file, child, 5000, { matchChildPid, launchToken: randomUUID() }), /后端启动信息无效/);
+      });
+    }
+  }
+});
+
 test('readiness fails promptly when the child exits before announcing readiness', async (t) => {
   const directory = temporaryDirectory(t);
   const { child, file } = readyChild(t, directory, { exit: 7 });
@@ -234,7 +268,9 @@ test('backend starts API before its worker and stops both processes without a Py
     assert.equal(record.args[record.args.indexOf('--data-dir') + 1], paths.data);
     assert.equal(record.env.PYTHONHOME, undefined);
     assert.equal(record.env.PYTHONPATH, undefined);
+    assert.equal(record.env.CHECKER_LAUNCH_TOKEN, runtime.launchToken);
   }
+  assert.equal(JSON.parse(readFileSync(paths.ready, 'utf8')).launch_token, runtime.launchToken);
   await Promise.all([runtime.stop(), runtime.stop()]);
   await waitUntil(() => runtime.children.every((child) => child.exitCode !== null || child.signalCode !== null));
   assert.equal(existsSync(paths.ready), false);

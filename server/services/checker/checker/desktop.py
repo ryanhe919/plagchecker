@@ -89,9 +89,11 @@ def configure_runtime(data_dir: Path) -> None:
 def write_ready_file(path: Path, port: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps({"host": "127.0.0.1", "port": port, "pid": os.getpid()}), encoding="utf-8"
-    )
+    endpoint = {"host": "127.0.0.1", "port": port, "pid": os.getpid()}
+    launch_token = os.environ.get("CHECKER_LAUNCH_TOKEN")
+    if launch_token is not None:
+        endpoint["launch_token"] = launch_token
+    temporary.write_text(json.dumps(endpoint), encoding="utf-8")
     os.replace(temporary, path)
 
 

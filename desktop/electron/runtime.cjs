@@ -1,4 +1,5 @@
 const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { existsSync, mkdirSync, openSync, closeSync, readFileSync, rmSync } = require('node:fs');
 const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
@@ -33,14 +34,16 @@ function runtimeEnvironment(paths, packaged) {
   return env;
 }
 
-async function waitForReady(file, child, timeoutMs = 60000) {
+async function waitForReady(file, child, timeoutMs = 60000, { matchChildPid = true, launchToken } = {}) {
   if (!child.pid) throw new Error('无法启动 Python 服务，请检查随包后端和日志');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('Python 服务提前退出');
     try {
       const ready = JSON.parse(readFileSync(file, 'utf8'));
-      if (ready.host !== '127.0.0.1' || ready.pid !== child.pid || !Number.isInteger(ready.port) || ready.port < 1 || ready.port > 65535) {
+      if (ready.host !== '127.0.0.1' || !Number.isInteger(ready.pid) || ready.pid < 1 || (matchChildPid && ready.pid !== child.pid)
+        || (launchToken !== undefined && ready.launch_token !== launchToken)
+        || !Number.isInteger(ready.port) || ready.port < 1 || ready.port > 65535) {
         throw new Error('后端启动信息无效');
       }
       const origin = `http://127.0.0.1:${ready.port}`;
@@ -82,6 +85,7 @@ class BackendRuntime {
     this.onFailure = onFailure;
     this.children = [];
     this.stopping = false;
+    this.launchToken = randomUUID();
   }
 
   launch(mode, extra = []) {
@@ -89,7 +93,7 @@ class BackendRuntime {
       ...this.paths.prefix, mode, '--data-dir', this.paths.data, '--parent-pid', String(process.pid), ...extra,
     ], {
       cwd: this.paths.cwd,
-      env: runtimeEnvironment(this.paths, this.packaged),
+      env: { ...runtimeEnvironment(this.paths, this.packaged), CHECKER_LAUNCH_TOKEN: this.launchToken },
       stdio: ['ignore', this.logFd, this.logFd],
       windowsHide: true,
       detached: process.platform !== 'win32',
@@ -109,7 +113,7 @@ class BackendRuntime {
     rmSync(this.paths.ready, { force: true });
     this.logFd = openSync(this.paths.log, 'a');
     const api = this.launch('serve', ['--ready-file', this.paths.ready, '--web-dir', this.paths.web]);
-    const origin = await waitForReady(this.paths.ready, api);
+    const origin = await waitForReady(this.paths.ready, api, 60000, { matchChildPid: this.packaged, launchToken: this.launchToken });
     if (this.stopping) throw new Error('应用已关闭');
     this.launch('worker');
     return origin;

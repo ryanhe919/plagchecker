@@ -34,6 +34,9 @@ class LoopbackGuard:
 
 class DesktopFiles(StaticFiles):
     async def get_response(self, path: str, scope: Scope) -> Response:
+        # Starlette converts the URL to an OS filesystem path before calling
+        # this method. Route checks must still use URL separators on Windows.
+        path = path.replace("\\", "/")
         if path == "api" or path.startswith("api/"):
             raise HTTPException(404)
         try:

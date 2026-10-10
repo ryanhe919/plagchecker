@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 from reportlab.pdfgen import canvas
 
 from checker.desktop import configure_runtime, parent_running
-from checker.desktop_app import create_desktop_app
+from checker.desktop_app import DesktopFiles, create_desktop_app
 
 
 def make_web_dir(root: Path) -> Path:
@@ -38,6 +39,16 @@ def wait_for(predicate, timeout: float = 20):
 
 def stop_process(process: subprocess.Popen) -> None:
     if process.poll() is None:
+        if os.name == "nt":
+            # Windows venv python.exe can redirect to a different interpreter
+            # PID. Kill its entire tree, including OCR, instead of the launcher.
+            subprocess.run(
+                [str(Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32/taskkill.exe"),
+                 "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True, check=False, timeout=10,
+            )
+            process.wait(timeout=10)
+            return
         process.terminate()
         try:
             process.wait(timeout=10)
@@ -84,6 +95,25 @@ def test_desktop_app_routes_origin_guard_and_static_path_isolation(tmp_path: Pat
         assert client.get(health, headers={"Host": "127.0.0.1:9999"}).status_code == 403
 
 
+def test_desktop_app_accepts_windows_filesystem_separators(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CHECKER_JOBS_DIR", str(tmp_path / "jobs"))
+    original_get_path = DesktopFiles.get_path
+
+    def windows_get_path(self, scope):
+        return original_get_path(self, scope).replace("/", "\\")
+
+    monkeypatch.setattr(DesktopFiles, "get_path", windows_get_path)
+    application = create_desktop_app(make_web_dir(tmp_path), 8123)
+    with TestClient(application, base_url="http://127.0.0.1:8123") as client:
+        response = client.get("/jobs/" + "a" * 32)
+        assert response.status_code == 200
+        assert "Desktop application" in response.text
+        assert client.get("/assets/app.js").status_code == 200
+        assert client.get("/assets/missing.js").status_code == 404
+        assert client.get("/api/v1/checker/missing").status_code == 404
+        assert client.get("/%2e%2e/secret.txt").status_code == 404
+
+
 def test_desktop_runtime_uses_explicit_ocr_and_persistent_data_paths(tmp_path: Path, monkeypatch) -> None:
     from pytesseract import pytesseract
 
@@ -116,6 +146,8 @@ def test_desktop_processes_complete_job_and_retain_history_after_restart(tmp_pat
     binary = os.environ.get("CHECKER_TEST_BACKEND")
     common = [binary] if binary else [sys.executable, "-m", "checker.desktop"]
     child_environment = os.environ.copy()
+    launch_token = uuid4().hex
+    child_environment["CHECKER_LAUNCH_TOKEN"] = launch_token
     if binary:
         # The frozen children must work without finding an installed interpreter.
         child_environment["PATH"] = ""
@@ -131,7 +163,11 @@ def test_desktop_processes_complete_job_and_retain_history_after_restart(tmp_pat
             wait_for(lambda: ready.exists())
             endpoint = json.loads(ready.read_text(encoding="utf-8"))
             assert endpoint["host"] == "127.0.0.1"
-            assert endpoint["pid"] == processes[0].pid
+            assert endpoint["launch_token"] == launch_token
+            if os.name == "nt" and not binary:
+                assert parent_running(endpoint["pid"])
+            else:
+                assert endpoint["pid"] == processes[0].pid
             assert 0 < endpoint["port"] < 65536
             with httpx.Client(base_url=f"http://127.0.0.1:{endpoint['port']}") as client:
                 assert client.get("/api/v1/checker/health").json() == {"status": "ok"}
